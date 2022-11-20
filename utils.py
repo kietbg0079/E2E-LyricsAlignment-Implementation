@@ -405,7 +405,7 @@ def mean_freq(file, start_time, end_time):
         float: mean frequency of audio's part
     """
 
-    data, sr = ls.load(file)
+    data, sr = librosa.load(file)
     assert len(data.shape) == 1, "only support 1-channel data"
 
     # Return a slice of the data from start_time to end_time
