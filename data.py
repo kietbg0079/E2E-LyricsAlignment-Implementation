@@ -9,7 +9,7 @@ import string
 
 from tqdm import tqdm
 import DALI as dali_code
-from utils import load, write_wav, load_lyrics, ToolFreq2Midi
+from utils import load, write_wav, load_lyrics, ToolFreq2Midi, mean_freq
 
 import soundfile as sf
 
@@ -75,8 +75,62 @@ def getDALI(database_path, level, lang, genre):
 
     return np.array(subset, dtype=object)
 
+def mapss(jsonfile):
+  wordlst = list()
+  db_path = '/content/data/zaloai/data_line/train/labels'
+  song_path = os.path.join("/content/data/zaloai/data_line/train/songs", jsonfile[:-5] + ".wav")
+
+  
+  y, sr = librosa.load(song_path, sr=22050, mono=True, offset=0.0, duration=None)
+  with open(os.path.join(db_path, jsonfile)) as f:
+    data = json.load(f)
+
+    for line in data:
+      for w in line['l']:  
+        if len(re.split('\d|\W', w['d'])) != 1 or len(w['d'])==0:
+          continue
+        try:
+          wfreq = mean_freqe(y, sr, w['s'], w['e'])
+          wordlst.append({'text' : w['d'], 'freq' :  [wfreq, wfreq], 'time' : [w['s'], w['e']], 'index' : data.index(line)})
+        except:
+          print(f"got error at file: {jsonfile} and word: {w['d']} ")
+  
+  print(f'finish {os.listdir(db_path).index(jsonfile)}')
+ 
+  return jsonfile, wordlst
+
+
+from concurrent import futures
+
+def extractJson(database_path):
+  zaloData = list()
+  jsonfiles = os.listdir(database_path)
+
+  with futures.ProcessPoolExecutor() as pool:
+    for path, word in pool.map(mapss, jsonfiles):
+      zaloData.append({'id' : path[:-5], 'annot' : word})
+
+  # for jsonfile in jsonfiles:
+  #   wordlst = list()
+  #   song_path = os.path.join("/content/data/zaloai/data_line/train/songs", jsonfile[:-5] + ".wav")
+
+
+  #   with open(os.path.join(database_path, jsonfile)) as f:
+  #     data = json.load(f)
+  #     y, sr = librosa.load(song_path)
+  #     for line in data:
+  #       for w in line['l']:  
+  #         #try:
+  #         wfreq = mean_freq(y, sr, w['s'], w['e'])
+  #         wordlst.append({'text' : w['d'], 'freq' :  [wfreq, wfreq], 'time' : [w['s'], w['e']], 'index' : data.index(line)})
+          # except:
+          #   print(f"got error at file: {jsonfile} and word: {w['d']} ")
+    # zaloData.append({'id' : jsonfile[:-5], 'annot' : wordlst})
+  return np.array(zaloData, dtype=object)
+
+
 def get_dali_folds(database_path, level, lang="english", genre=None):
-    dataset = getDALI(database_path, level, lang, genre)
+    dataset = extractJson(database_path, level, lang, genre)
 
     total_len = len(dataset)
     train_len = np.int(0.8 * total_len)
@@ -86,6 +140,7 @@ def get_dali_folds(database_path, level, lang="english", genre=None):
     logging.debug("First training song: " + str(train_list[0]["id"]) + " " + str(len(train_list[0]["annot"])) + " lines")
     logging.debug("train_list {} songs val_list {} songs".format(len(train_list), len(val_list)))
     return {"train" : train_list, "val" : val_list}
+
 
 def crop(mix, targets, shapes):
     '''
@@ -122,7 +177,6 @@ def random_amplify(mix, targets, shapes, min, max):
 class LyricsAlignDataset(Dataset):
     def __init__(self, dataset, partition, sr, shapes, hdf_dir, in_memory=False, dummy=False, pad_length=150):
         '''
-
         :param dataset:     a list of song with line level annotation
         :param sr:          sampling rate
         :param shapes:      dict, keys: "output_frames", "output_start_frame", "input_frames"
@@ -160,8 +214,10 @@ class LyricsAlignDataset(Dataset):
 
                 print("Adding audio files to dataset (preprocessing)...")
                 for idx, example in enumerate(tqdm(dataset[partition])):
+                    filename = example["id"]
                     # Load song
-                    y, _ = load(example["path"], sr=self.sr, mono=True)
+                    song_path = os.path.join("/content/data/zaloai/data_line/train/songs", example["id"] + ".wav")
+                    y, _ = load(song_path, sr=self.sr, mono=True)
 
                     # Add to HDF5 file
                     grp = f.create_group(str(idx))
@@ -176,21 +232,21 @@ class LyricsAlignDataset(Dataset):
                     times = np.array([sample["time"] for sample in example["annot"]])
 
                     # note level annotation
-                    notes = np.array(example["notes"])
-                    note_num = len(notes)
-                    pitches = np.array([note["freq"] for note in notes])
-                    note_times = np.array([np.array([note['time'][0], note['time'][1]]) for note in notes])
+                    # notes = np.array(example["notes"])
+                    note_num = annot_num
+                    # pitches = np.array([note["freq"] for note in notes])
+                    # note_times = np.array([np.array([note['time'][0], note['time'][1]]) for note in notes])
 
-                    grp.attrs["annot_num"] = annot_num
-                    grp.attrs["note_num"] = note_num
+                    # grp.attrs["annot_num"] = annot_num
+                    # grp.attrs["note_num"] = note_num
 
                     # words and corresponding times
                     grp.create_dataset("lyrics", shape=(annot_num, 1), dtype='S100', data=lyrics)
                     grp.create_dataset("times", shape=(annot_num, 2), dtype=times.dtype, data=times)
 
                     # notes and corresponding times
-                    grp.create_dataset("freqs", shape=(note_num, 1), dtype=np.short, data=pitches)
-                    grp.create_dataset("note_times", shape=(note_num, 2), dtype=note_times.dtype, data=note_times)
+                    # grp.create_dataset("freqs", shape=(note_num, 1), dtype=np.short, data=pitches)
+                    # grp.create_dataset("note_times", shape=(note_num, 2), dtype=note_times.dtype, data=note_times)
 
         # In that case, check whether sr and channels are complying with the audio in the HDF file, otherwise raise error
         with h5py.File(self.hdf_file, "r", libver='latest', swmr=True) as f:
@@ -273,12 +329,14 @@ class LyricsAlignDataset(Dataset):
                 first_word_to_include = next(x for x, val in enumerate(list(words_start_end_pos[:, 0]))
                                              if val > start_target_pos/self.sr)
             except StopIteration:
+                print("0")
                 first_word_to_include = np.Inf
 
             try:
                 last_word_to_include = annot_num - 1 - next(x for x, val in enumerate(reversed(list(words_start_end_pos[:, 1])))
                                              if val < end_target_pos/self.sr)
             except StopIteration:
+                print("1")
                 last_word_to_include = -np.Inf
 
             targets = ""
