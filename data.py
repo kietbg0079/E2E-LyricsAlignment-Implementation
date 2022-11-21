@@ -11,7 +11,7 @@ import json
 import librosa
 from tqdm import tqdm
 import DALI as dali_code
-from utils import load, write_wav, load_lyrics, ToolFreq2Midi, mean_freqe
+from utils import load, write_wav, load_lyrics, ToolFreq2Midi, mean_freq
 
 import soundfile as sf
 
