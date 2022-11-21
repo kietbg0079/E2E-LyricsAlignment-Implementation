@@ -16,7 +16,7 @@ from torch.optim import Adam
 from tqdm import tqdm
 
 import utils
-from data import get_dali_folds, LyricsAlignDataset
+from data import get_data_folds, LyricsAlignDatasets
 from test import predict, validate
 from waveunet import WaveunetLyrics
 
@@ -42,7 +42,7 @@ def main(args):
         model = utils.DataParallel(model)
         print("move model to gpu")
         model.cuda()
-
+    
     # print('model: ', model)
     print('parameter count: ', str(sum(p.numel() for p in model.parameters())))
 
@@ -51,11 +51,11 @@ def main(args):
     writer = SummaryWriter(args.log_dir + current.strftime("%m:%d:%H:%M"))
 
     ### DATASET
-    dali_split = get_dali_folds(args.dataset_dir, level="words")
+    dali_split = get_data_folds(args.dataset_dir, 0.8)
     # dali_split = {"train": [], "val": []} # h5 files already saved
 
-    val_data = LyricsAlignDataset(dali_split, "val", args.sr, model.shapes, args.hdf_dir, dummy=args.dummy)
-    train_data = LyricsAlignDataset(dali_split, "train", args.sr, model.shapes, args.hdf_dir, dummy=args.dummy)
+    val_data = LyricsAlignDatasets(dali_split, "val", args.sr, model.shapes, args.hdf_dir, dummy=args.dummy)
+    train_data = LyricsAlignDatasets(dali_split, "train", args.sr, model.shapes, args.hdf_dir, dummy=args.dummy)
 
     print("dummy?", args.dummy, len(train_data), len(val_data))
 
