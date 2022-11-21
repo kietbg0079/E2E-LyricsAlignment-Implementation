@@ -393,7 +393,7 @@ def ToolFreq2Midi(fInHz, fA4InHz=440):
     return (midi)
 
 
-def mean_freq(file, start_time, end_time):
+def mean_freq(data, sr, start_time, end_time):
     """Get mean fequency of an audio from start_time to end_time
 
     Args:
@@ -405,7 +405,6 @@ def mean_freq(file, start_time, end_time):
         float: mean frequency of audio's part
     """
 
-    data, sr = librosa.load(file)
     assert len(data.shape) == 1, "only support 1-channel data"
 
     # Return a slice of the data from start_time to end_time
