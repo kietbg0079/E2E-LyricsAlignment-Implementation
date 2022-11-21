@@ -1,21 +1,25 @@
 import h5py
 
 import os
+import re
 import numpy as np
 from sortedcontainers import SortedList
 from torch.utils.data import Dataset
 import glob
 import string
-
+import json
+import librosa
 from tqdm import tqdm
 import DALI as dali_code
-from utils import load, write_wav, load_lyrics, ToolFreq2Midi, mean_freq
+from utils import load, write_wav, load_lyrics, ToolFreq2Midi, mean_freqe
 
 import soundfile as sf
 
 import logging
 # logging.basicConfig(level=logging.DEBUG)
 
+
+  
 def getDALI(database_path, level, lang, genre):
     dali_annot_path = os.path.join(database_path, 'annot_tismir')
     dali_audio_path = os.path.join(database_path, 'audio')
@@ -75,29 +79,49 @@ def getDALI(database_path, level, lang, genre):
 
     return np.array(subset, dtype=object)
 
-def mapss(jsonfile):
+def maps(jsonfile):
   wordlst = list()
+  notes = list()
+
   db_path = '/content/data/zaloai/data_line/train/labels'
   song_path = os.path.join("/content/data/zaloai/data_line/train/songs", jsonfile[:-5] + ".wav")
 
   
   y, sr = librosa.load(song_path, sr=22050, mono=True, offset=0.0, duration=None)
+
+  timeplay = librosa.get_duration(filename=song_path)
+  
   with open(os.path.join(db_path, jsonfile)) as f:
     data = json.load(f)
 
+    song_start = data[0]['s']
+    song_end = data[-1]['e']
+  
+    dura = song_end - song_start
+
     for line in data:
       for w in line['l']:  
-        if len(re.split('\d|\W', w['d'])) != 1 or len(w['d'])==0:
+
+        clean_w = re.findall("\w+", w['d'])
+        if len(clean_w) != 1:
+          print(f"discard {w['d']} in {jsonfile}")
           continue
-        try:
-          wfreq = mean_freqe(y, sr, w['s'], w['e'])
-          wordlst.append({'text' : w['d'], 'freq' :  [wfreq, wfreq], 'time' : [w['s'], w['e']], 'index' : data.index(line)})
-        except:
-          print(f"got error at file: {jsonfile} and word: {w['d']} ")
+        else:
+          startw = (w['s'] / dura) * timeplay
+          endw = (w['e'] / dura) * timeplay
+          try:
+            wfreq = mean_freqe(y, sr, w['s'], w['e'])
+            note = {"freq": wfreq, "pitch": ToolFreq2Midi(wfreq), 
+                      "time": [startw, endw]}
+            
+            notes.append(note)
+            wordlst.append({'text' : clean_w[0], 'freq' :  [wfreq, wfreq], 'time' : [startw, endw], 'index' : data.index(line), 'duration' : endw - startw})
+          except:
+            print(f"got error at file: {jsonfile} and word: {w['d']} ")
   
   print(f'finish {os.listdir(db_path).index(jsonfile)}')
  
-  return jsonfile, wordlst
+  return jsonfile, wordlst, notes
 
 
 from concurrent import futures
@@ -129,11 +153,21 @@ def extractJson(database_path):
   return np.array(zaloData, dtype=object)
 
 
-def get_dali_folds(database_path, level, lang="english", genre=None):
-    dataset = extractJson(database_path, level, lang, genre)
+def extractJson(database_path):
+  zaloData = list()
+  jsonfiles = os.listdir(database_path)
+
+  with futures.ProcessPoolExecutor() as pool:
+    for path, word, notes in pool.map(maps, jsonfiles):
+      song = {'id' : path[:-5], 'annot' : word, 'path' : os.path.join(database_path, path), 'notes' : notes}
+      
+      zaloData.append(song)
+
+def get_data_folds(database_path, p):
+    dataset = extractJson(database_path)
 
     total_len = len(dataset)
-    train_len = np.int(0.8 * total_len)
+    train_len = np.int(p * total_len)
 
     train_list = np.random.choice(dataset, train_len, replace=False)
     val_list = [elem for elem in dataset if elem not in train_list]
@@ -174,7 +208,7 @@ def random_amplify(mix, targets, shapes, min, max):
     return crop(mix, targets, shapes)
 
 
-class LyricsAlignDataset(Dataset):
+class LyricsAlignDatasets(Dataset):
     def __init__(self, dataset, partition, sr, shapes, hdf_dir, in_memory=False, dummy=False, pad_length=150):
         '''
         :param dataset:     a list of song with line level annotation
@@ -185,7 +219,7 @@ class LyricsAlignDataset(Dataset):
         :param dummy:       use a subset
         '''
 
-        super(LyricsAlignDataset, self).__init__()
+        super(LyricsAlignDatasets, self).__init__()
 
         self.hdf_dataset = None
         os.makedirs(hdf_dir, exist_ok=True)
@@ -232,23 +266,24 @@ class LyricsAlignDataset(Dataset):
                     times = np.array([sample["time"] for sample in example["annot"]])
 
                     # note level annotation
-                    # notes = np.array(example["notes"])
-                    note_num = annot_num
-                    # pitches = np.array([note["freq"] for note in notes])
-                    # note_times = np.array([np.array([note['time'][0], note['time'][1]]) for note in notes])
+                    notes = np.array(example["notes"])
+                    note_num = len(notes)
+                    pitches = np.array([note["freq"] for note in notes])
+                    note_times = np.array([np.array([note['time'][0], note['time'][1]]) for note in notes])
 
-                    # grp.attrs["annot_num"] = annot_num
-                    # grp.attrs["note_num"] = note_num
+                    grp.attrs["annot_num"] = annot_num
+                    grp.attrs["note_num"] = note_num
 
                     # words and corresponding times
                     grp.create_dataset("lyrics", shape=(annot_num, 1), dtype='S100', data=lyrics)
                     grp.create_dataset("times", shape=(annot_num, 2), dtype=times.dtype, data=times)
 
                     # notes and corresponding times
-                    # grp.create_dataset("freqs", shape=(note_num, 1), dtype=np.short, data=pitches)
-                    # grp.create_dataset("note_times", shape=(note_num, 2), dtype=note_times.dtype, data=note_times)
-
-        # In that case, check whether sr and channels are complying with the audio in the HDF file, otherwise raise error
+                    grp.create_dataset("freqs", shape=(note_num, 1), dtype=np.short, data=pitches)
+                    grp.create_dataset("note_times", shape=(note_num, 2), dtype=note_times.dtype, data=note_times)
+                           
+                           
+                    # In that case, check whether sr and channels are complying with the audio in the HDF file, otherwise raise error
         with h5py.File(self.hdf_file, "r", libver='latest', swmr=True) as f:
             if f.attrs["sr"] != sr:
                 raise ValueError(
@@ -274,6 +309,36 @@ class LyricsAlignDataset(Dataset):
 
     def shuffle_data_list(self):
         np.random.shuffle(self.shuffled_buffer)
+    
+    def vn2seq(self, text):
+      seq = []
+      lst_char = ['a', 'à', 'ả', 'ã', 'á', 'ạ',
+      'ă', 'ằ', 'ẳ', 'ẵ', 'ắ', 'ặ',
+      'â', 'ầ', 'ẩ', 'ẫ', 'ấ', 'ậ',
+      'b', 'c', 'd', 'đ', 
+      'e', 'è', 'ẻ', 'ẽ', 'é', 'ẹ',
+      'ê', 'ề', 'ể', 'ễ', 'ế', 'ệ',
+      'f', 'j', 'g', 'h', 
+      'i', 'ì', 'ỉ', 'ĩ', 'í', 'ị',
+      'j', 'k', 'l', 'm', 'n', 
+      'o', 'ò', 'ỏ', 'õ', 'ó', 'ọ',
+      'ô', 'ồ', 'ổ', 'ỗ', 'ố', 'ộ',
+      'ơ', 'ờ', 'ở', 'ỡ', 'ớ', 'ợ',
+      'p', 'q', 'r', 's', 't', 
+      'u', 'ù', 'ủ', 'ũ', 'ú', 'ụ',
+      'ư', 'ừ', 'ử', 'ữ', 'ứ', 'ự', 
+      'v', 'w', 'x',
+      'y', 'ỳ', 'ỷ', 'ỹ', 'ý', 'ỵ',
+      'z', ' ']
+      for c in text.lower():
+        try:
+          idx = lst_char.index(c)
+        except:
+          continue # remove unknown characters
+        seq.append(idx)
+      if len(seq) == 0:
+          seq.append(27)
+      return np.array(seq)
 
     def __getitem__(self, index):
 
@@ -289,19 +354,24 @@ class LyricsAlignDataset(Dataset):
             song_idx = self.start_pos.bisect_right(index)
             if song_idx > 0:
                 index = index - self.start_pos[song_idx - 1]
-
+                #print(f'index: {index}')
             # Check length of audio signal
             audio_length = self.hdf_dataset[str(song_idx)].attrs["input_length"]
             annot_num = self.hdf_dataset[str(song_idx)].attrs["annot_num"]
             target_length = self.shapes["output_frames"]
 
+            #print(f'audio len: {audio_length} , annot num {annot_num}, target_length {target_length}')
             # Determine position where to start targets
-            start_target_pos = index * self.hop
-            end_target_pos = start_target_pos + self.shapes["output_frames"]
 
+            start_target_pos = index * self.hop
+            #print(f'start target: {start_target_pos}')
+            end_target_pos = start_target_pos + self.shapes["output_frames"]
+            #print(f'end target: {end_target_pos}')
             # READ INPUTS
             # Check front padding
             start_pos = start_target_pos - self.shapes["output_start_frame"]
+
+            #print(f'start_pos : {start_pos}')
             if start_pos < 0:
                 # Pad manually since audio signal was too short
                 pad_front = abs(start_pos)
@@ -311,6 +381,8 @@ class LyricsAlignDataset(Dataset):
 
             # Check back padding
             end_pos = start_target_pos - self.shapes["output_start_frame"] + self.shapes["input_frames"]
+
+            #print(f'end_pos : {end_pos}')
             if end_pos > audio_length:
                 # Pad manually since audio signal was too short
                 pad_back = end_pos - audio_length
@@ -329,14 +401,14 @@ class LyricsAlignDataset(Dataset):
                 first_word_to_include = next(x for x, val in enumerate(list(words_start_end_pos[:, 0]))
                                              if val > start_target_pos/self.sr)
             except StopIteration:
-                print("0")
+  
                 first_word_to_include = np.Inf
 
-            try:
+            try:        
                 last_word_to_include = annot_num - 1 - next(x for x, val in enumerate(reversed(list(words_start_end_pos[:, 1])))
                                              if val < end_target_pos/self.sr)
             except StopIteration:
-                print("1")
+
                 last_word_to_include = -np.Inf
 
             targets = ""
@@ -346,39 +418,23 @@ class LyricsAlignDataset(Dataset):
                 index = np.random.randint(self.length)
                 continue
             if first_word_to_include <= last_word_to_include: # the window covers word[first:last+1]
-                lyrics = self.hdf_dataset[str(song_idx)]["lyrics"][first_word_to_include:last_word_to_include+1]
-                lyrics_list = [s[0].decode() for s in list(lyrics)]
-                targets = " ".join(lyrics_list)
-                targets = " ".join(targets.split())
+              lyrics = self.hdf_dataset[str(song_idx)]["lyrics"][first_word_to_include:last_word_to_include+1]
+              lyrics_list = [s[0].decode() for s in list(lyrics)]
+              targets = " ".join(lyrics_list)
+              targets = " ".join(targets.split())
 
             if len(targets) > 120:
                 index = np.random.randint(self.length)
                 continue
-
-            seq = self.text2seq(targets)
+            seq = self.vn2seq(targets)
             break
 
         return audio, targets, seq
-
-    def text2seq(self, text):
-        seq = []
-        for c in text.lower():
-            idx = string.ascii_lowercase.find(c)
-            if idx == -1:
-                if c == "'":
-                    idx = 26
-                elif c == " ":
-                    idx = 27
-                else:
-                    continue # remove unknown characters
-            seq.append(idx)
-        # if len(seq) == 0:
-        #     seq.append(28) # insert epsilon for instrumental segments
-        return np.array(seq)
-
-
+        
     def __len__(self):
-        return self.length
+          return self.length
+
+
 
 class JamendoLyricsDataset(Dataset):
     def __init__(self, sr, shapes, hdf_dir, dataset, jamendo_dir, in_memory=False):
