@@ -83,7 +83,7 @@ def maps(jsonfile, db_path):
   wordlst = list()
   notes = list()
 
-  json_path = os.path.join(db_path + "/labels)
+  json_path = os.path.join(db_path + "/labels")
   song_path = os.path.join(db_path + "/songs", jsonfile[:-5] + ".wav")
                            
   y, sr = librosa.load(song_path, sr=22050, mono=True, offset=0.0, duration=None)
@@ -130,10 +130,10 @@ from concurrent import futures
 def extractJson(database_path):
   zaloData = list()
   jsonfiles = os.listdir(database_path + "/labels")
-  dbpath = np.full((1, len(jsonfiles)), database_path)
+  dbpath = np.full((1, len(jsonfiles)), database_path, dtype=str)
 
   with futures.ProcessPoolExecutor() as pool:
-    for path, word, notes in pool.map(maps, jsonfiles):
+    for path, word, notes in pool.map(maps, jsonfiles, dbpath):
       song = {'id' : path[:-5], 'annot' : word, 'path' : os.path.join(jsonfiles, path), 'notes' : notes}
       zaloData.append(song)
 
