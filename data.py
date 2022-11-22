@@ -79,19 +79,17 @@ def getDALI(database_path, level, lang, genre):
 
     return np.array(subset, dtype=object)
 
-def maps(jsonfile):
+def maps(jsonfile, db_path):
   wordlst = list()
   notes = list()
 
-  db_path = '/content/data/zaloai/data_line/train/labels'
-  song_path = os.path.join("/content/data/zaloai/data_line/train/songs", jsonfile[:-5] + ".wav")
-
-  
+  json_path = os.path.join(db_path + "/labels)
+  song_path = os.path.join(db_path + "/songs", jsonfile[:-5] + ".wav")
+                           
   y, sr = librosa.load(song_path, sr=22050, mono=True, offset=0.0, duration=None)
-
   timeplay = librosa.get_duration(filename=song_path)
   
-  with open(os.path.join(db_path, jsonfile)) as f:
+  with open(os.path.join(json_path, jsonfile)) as f:
     data = json.load(f)
 
     song_start = data[0]['s']
@@ -110,7 +108,7 @@ def maps(jsonfile):
           startw = (w['s'] / dura) * timeplay
           endw = (w['e'] / dura) * timeplay
           try:
-            wfreq = mean_freqe(y, sr, w['s'], w['e'])
+            wfreq = mean_freq(y, sr, w['s'], w['e'])
             note = {"freq": wfreq, "pitch": ToolFreq2Midi(wfreq), 
                       "time": [startw, endw]}
             
@@ -126,43 +124,20 @@ def maps(jsonfile):
 
 from concurrent import futures
 
+                           
+
+                           
 def extractJson(database_path):
   zaloData = list()
-  jsonfiles = os.listdir(database_path)
-
-  with futures.ProcessPoolExecutor() as pool:
-    for path, word in pool.map(mapss, jsonfiles):
-      zaloData.append({'id' : path[:-5], 'annot' : word})
-
-  # for jsonfile in jsonfiles:
-  #   wordlst = list()
-  #   song_path = os.path.join("/content/data/zaloai/data_line/train/songs", jsonfile[:-5] + ".wav")
-
-
-  #   with open(os.path.join(database_path, jsonfile)) as f:
-  #     data = json.load(f)
-  #     y, sr = librosa.load(song_path)
-  #     for line in data:
-  #       for w in line['l']:  
-  #         #try:
-  #         wfreq = mean_freq(y, sr, w['s'], w['e'])
-  #         wordlst.append({'text' : w['d'], 'freq' :  [wfreq, wfreq], 'time' : [w['s'], w['e']], 'index' : data.index(line)})
-          # except:
-          #   print(f"got error at file: {jsonfile} and word: {w['d']} ")
-    # zaloData.append({'id' : jsonfile[:-5], 'annot' : wordlst})
-  return np.array(zaloData, dtype=object)
-
-
-def extractJson(database_path):
-  zaloData = list()
-  jsonfiles = os.listdir(database_path)
+  jsonfiles = os.listdir(database_path + "/labels")
+  dbpath = np.full((1, len(jsonfiles)), database_path)
 
   with futures.ProcessPoolExecutor() as pool:
     for path, word, notes in pool.map(maps, jsonfiles):
-      song = {'id' : path[:-5], 'annot' : word, 'path' : os.path.join(database_path, path), 'notes' : notes}
-      
+      song = {'id' : path[:-5], 'annot' : word, 'path' : os.path.join(jsonfiles, path), 'notes' : notes}
       zaloData.append(song)
 
+                           
 def get_data_folds(database_path, p):
     dataset = extractJson(database_path)
 
@@ -250,8 +225,7 @@ class LyricsAlignDatasets(Dataset):
                 for idx, example in enumerate(tqdm(dataset[partition])):
                     filename = example["id"]
                     # Load song
-                    song_path = os.path.join("/content/data/zaloai/data_line/train/songs", example["id"] + ".wav")
-                    y, _ = load(song_path, sr=self.sr, mono=True)
+                    y, _ = load(example["path"], sr=self.sr, mono=True)
 
                     # Add to HDF5 file
                     grp = f.create_group(str(idx))
