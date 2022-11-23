@@ -138,9 +138,17 @@ def extractJson(database_path):
       zaloData.append(song)
 
                            
-def get_data_folds(database_path, p):
-    dataset = extractJson(database_path)
+def get_data_folds(database_path, p, extJson = ""):
+    if os.path.exists(extJson):
+      try:
+        with open(extJson, 'rb') as f:
+          dataset = np.load(f, allow_pickle=True)
+      except:
+        dataset = extractJson(database_path)
 
+    else:
+      dataset = extractJson(database_path)
+      
     total_len = len(dataset)
     train_len = np.int(p * total_len)
 
