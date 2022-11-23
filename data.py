@@ -79,16 +79,16 @@ def getDALI(database_path, level, lang, genre):
 
     return np.array(subset, dtype=object)
 
-def maps(jsonfile, db_path):
+def maps(jsonfile):
   wordlst = list()
   notes = list()
 
+  db_path = "/content/data/zaloai/data_line/train"
+
   json_path = os.path.join(db_path + "/labels")
   song_path = os.path.join(db_path + "/songs", jsonfile[:-5] + ".wav")
-                           
   y, sr = librosa.load(song_path, sr=22050, mono=True, offset=0.0, duration=None)
   timeplay = librosa.get_duration(filename=song_path)
-  
   with open(os.path.join(json_path, jsonfile)) as f:
     data = json.load(f)
 
@@ -117,7 +117,7 @@ def maps(jsonfile, db_path):
           except:
             print(f"got error at file: {jsonfile} and word: {w['d']} ")
   
-  print(f'finish {os.listdir(db_path).index(jsonfile)}')
+  print(f'finish {os.listdir(json_path).index(jsonfile)}')
  
   return jsonfile, wordlst, notes
 
@@ -129,12 +129,13 @@ from concurrent import futures
                            
 def extractJson(database_path):
   zaloData = list()
-  jsonfiles = os.listdir(database_path + "/labels")
-  dbpath = np.full((1, len(jsonfiles)), database_path, dtype=str)
 
+  songpath = database_path + "/songs"
+  jsonfiles = os.listdir(database_path + "/labels")
+  
   with futures.ProcessPoolExecutor() as pool:
-    for path, word, notes in pool.map(maps, jsonfiles, dbpath):
-      song = {'id' : path[:-5], 'annot' : word, 'path' : os.path.join(jsonfiles, path), 'notes' : notes}
+    for path, word, notes in pool.map(maps, jsonfiles):
+      song = {'id' : path[:-5], 'annot' : word, 'path' : os.path.join(songpath, path[:-5] + ".wav"), 'notes' : notes}
       zaloData.append(song)
   
   return np.array(zaloData, dtype=object)
@@ -150,7 +151,7 @@ def get_data_folds(database_path, p, extJson = ""):
 
     else:
       dataset = extractJson(database_path)
-      
+
     total_len = len(dataset)
     train_len = np.int(p * total_len)
 
