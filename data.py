@@ -136,6 +136,8 @@ def extractJson(database_path):
     for path, word, notes in pool.map(maps, jsonfiles, dbpath):
       song = {'id' : path[:-5], 'annot' : word, 'path' : os.path.join(jsonfiles, path), 'notes' : notes}
       zaloData.append(song)
+  
+  return np.array(zaloData, dtype=object)
 
                            
 def get_data_folds(database_path, p, extJson = ""):
