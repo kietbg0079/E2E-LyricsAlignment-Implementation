@@ -10,6 +10,7 @@ import string
 import json
 import librosa
 from tqdm import tqdm
+import unidecode
 import DALI as dali_code
 from utils import load, write_wav, load_lyrics, ToolFreq2Midi, mean_freq
 
