@@ -51,7 +51,7 @@ def main(args):
     writer = SummaryWriter(args.log_dir + current.strftime("%m:%d:%H:%M"))
 
     ### DATASET
-    dali_split = get_data_folds(args.dataset_dir, 0.8)
+    dali_split = get_data_folds(args.dataset_dir, 0.8, args.npy_path)
     # dali_split = {"train": [], "val": []} # h5 files already saved
 
     val_data = LyricsAlignDatasets(dali_split, "val", args.sr, model.shapes, args.hdf_dir, dummy=args.dummy)
@@ -176,6 +176,8 @@ if __name__ == '__main__':
                         help='Folder to write checkpoints into')
     parser.add_argument('--load_model', type=str, default=None,
                         help='Reload a previously trained model (whole task model)')
+    parser.add_argument('--npy_path', type=str, default="",
+                        help="Path to extract Json")
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='Initial learning rate in LR cycle (default: 1e-3)')
     parser.add_argument('--min_lr', type=float, default=5e-5,
