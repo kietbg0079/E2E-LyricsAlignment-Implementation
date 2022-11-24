@@ -430,7 +430,7 @@ class LyricsAlignDatasets(Dataset):
             if len(targets) > 120:
                 index = np.random.randint(self.length)
                 continue
-            seq = self.text2seq(targets)
+            seq = self.vn2seq(targets)
             break
 
         return audio, targets, seq
